@@ -69,11 +69,18 @@ int http_filter(struct __sk_buff *skb)
      * direct access to skb not allowed
      */
     unsigned long p[7];
+#if 1 /* Fix BPF error: invalid read from stack */
+    int i = 0;
+    for (i = 0; i < 7; i++) {
+        p[i] = load_byte(skb, payload_offset + i);
+    }
+#else
     const int last_index = payload_offset + 7;
     for (int j = 0, i = payload_offset; i < last_index; i++) {
         p[j] = load_byte(skb, i);
         j++;
     }
+#endif
 
     /* find a match with an HTTP message */
     /* HTTP */
