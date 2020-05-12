@@ -34,6 +34,11 @@ $(TARGET): $(OBJS)
 	$(VECHO) "  LD\t$@\n"
 	$(Q)$(CC) -o $@ $^ $(LDFLAGS)
 
+CFLAGS_user = -std=gnu11 -Wall -Wextra -Werror
+LDFLAGS_user = -lpthread
+htstress: htstress.c
+	$(CC) $(CFLAGS_user) -o $@ $< $(LDFLAGS_user)
+
 check: all
 	@scripts/test.sh
 
