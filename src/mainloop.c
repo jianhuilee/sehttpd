@@ -111,10 +111,12 @@ int main()
 
     /* epoll_wait loop */
     while (1) {
+        /* Fix double free issue. */
+        handle_expired_timers();
+
         int time = find_timer();
         debug("wait time = %d", time);
         int n = epoll_wait(epfd, events, MAXEVENTS, time);
-        handle_expired_timers();
 
         for (int i = 0; i < n; i++) {
             http_request_t *r = events[i].data.ptr;
