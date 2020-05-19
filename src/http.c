@@ -5,6 +5,7 @@
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/mman.h>
+#include <sys/sendfile.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -151,10 +152,10 @@ static const char *get_msg_from_status(int status_code)
     return "Unknown";
 }
 
-static void serve_static(int fd,
-                         char *filename,
-                         size_t filesize,
-                         http_out_t *out)
+static int serve_static(int fd,
+                        char *filename,
+                        size_t filesize,
+                        http_out_t *out)
 {
     char header[MAXLINE];
 
@@ -187,22 +188,29 @@ static void serve_static(int fd,
     assert(n == strlen(header) && "writen error");
     if (n != strlen(header)) {
         log_err("n != strlen(header)");
-        return;
+        return -1;
     }
 
     if (!out->modified)
-        return;
+        return 0;
 
     int srcfd = open(filename, O_RDONLY, 0);
     assert(srcfd > 2 && "open error");
     /* TODO: use sendfile(2) for zero-copy support */
-    char *srcaddr = mmap(NULL, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
-    assert(srcaddr != (void *) -1 && "mmap error");
+    ssize_t offset = 0;
+    while (offset < filesize) {
+        ssize_t ret_size;
+        ret_size = sendfile(fd, srcfd, &offset, filesize);
+
+        if (ret_size < 0 && errno != EAGAIN) {
+            /* TODO: mostly will receive broken pipe. Why? */
+            perror("sendifle");
+            close(srcfd);
+            return -1;
+        }
+    }
     close(srcfd);
-
-    writen(fd, srcaddr, filesize);
-
-    munmap(srcaddr, filesize);
+    return 0;
 }
 
 static inline int init_http_out(http_out_t *o, int fd)
@@ -297,7 +305,11 @@ void do_request(void *ptr)
         if (!out->status)
             out->status = HTTP_OK;
 
-        serve_static(fd, filename, sbuf.st_size, out);
+        if (serve_static(fd, filename, sbuf.st_size, out) < 0) {
+            /* TODO: Why not faster? */
+            free(out);
+            goto close;
+        }
 
         if (!out->keep_alive) {
             debug("no keep_alive! ready to close");
