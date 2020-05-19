@@ -79,6 +79,10 @@ static socklen_t sssln = 0;
 
 static int concurrency = 1;
 static int num_threads = 1;
+static struct timeval timeout = {
+    .tv_sec = 0,
+    .tv_usec = 0,
+};
 
 static char *udaddr = "";
 
@@ -97,13 +101,15 @@ static int exit_i = 0;
 
 static struct timeval tv, tve;
 
-static const char short_options[] = "n:c:t:u:h:d46";
+static const char short_options[] = "n:c:t:o:u:h:d46";
 
 static const struct option long_options[] = {
     {"number", 1, NULL, 'n'},  {"concurrency", 1, NULL, 'c'},
     {"threads", 0, NULL, 't'}, {"udaddr", 1, NULL, 'u'},
     {"host", 1, NULL, 'h'},    {"debug", 0, NULL, 'd'},
-    {"help", 0, NULL, '%'},    {NULL, 0, NULL, 0}};
+    {"help", 0, NULL, '%'},    {NULL, 0, NULL, 0},
+    {"timeout", 1, NULL, 'o'},
+};
 
 static void sigint_handler(int arg)
 {
@@ -141,6 +147,22 @@ static void init_conn(int efd, struct econn *ec)
     }
 
     fcntl(ec->fd, F_SETFL, O_NONBLOCK);
+
+    if (timeout.tv_sec || timeout.tv_usec) {
+        ret = setsockopt(ec->fd, SOL_SOCKET, SO_RCVTIMEO,
+                         (struct timeval *) &timeout, sizeof(timeout));
+
+        if (ret) {
+            perror("setsockopt() SO_RCVTIMEO failed");
+        }
+
+        ret = setsockopt(ec->fd, SOL_SOCKET, SO_SNDTIMEO,
+                         (struct timeval *) &timeout, sizeof(timeout));
+
+        if (ret) {
+            perror("setsockopt() SO_SNDTIMEO failed");
+        }
+    }
 
     do {
         ret = connect(ec->fd, (struct sockaddr *) &sss, sssln);
@@ -325,6 +347,7 @@ static void print_usage()
         "   -c, --concurrency  number of concurrent connections\n"
         "   -t, --threads      number of threads (set this to the number of "
         "CPU cores)\n"
+        "   -o, --timeout      socket timout in milliseconds\n"
         "   -u, --udaddr       path to unix domain socket\n"
         "   -h, --host         host to use for http request\n"
         "   -d, --debug        debug HTTP response\n"
@@ -366,7 +389,8 @@ int main(int argc, char *argv[])
     if (argc == 1)
         print_usage();
 
-    int next_option;
+    int next_option, ms;
+
     do {
         next_option =
             getopt_long(argc, argv, short_options, long_options, NULL);
@@ -378,6 +402,18 @@ int main(int argc, char *argv[])
         case 'c':
             concurrency = atoi(optarg);
             break;
+
+        case 'o':
+            ms = atoi(optarg);
+
+            if (ms >= 0) {
+                timeout.tv_sec = ms / 1000;
+                timeout.tv_usec = (ms % 1000) * 1000;
+            } else {
+                printf("Invalid timeout value!.\n");
+            }
+            break;
+
         case 't':
             num_threads = atoi(optarg);
             break;
